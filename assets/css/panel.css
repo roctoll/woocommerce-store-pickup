@@ -1,0 +1,9 @@
+#woocommerce-product-data ul.wc-tabs li.bookings_store_pickup_tab a:before {
+content: '\e026'!important;
+}
+
+#adminmenu #menu-posts-pickup-store.menu-icon-post div.wp-menu-image:before {
+content: '\e026';
+font-size: 1.25em!important;
+font-family: woocommerce!important;
+}
