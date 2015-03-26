@@ -7,3 +7,8 @@ content: '\e026';
 font-size: 1.25em!important;
 font-family: woocommerce!important;
 }
+
+.input_email_layout{
+	width: 500px;
+	height: 200px;
+}

@@ -1,7 +1,7 @@
 <?php 
 /*
 Plugin Name: WooCommerce Store Pickup
-Plugin URI: 
+Plugin URI: http://roctoll.com/woocommerce-store-pickup.zip
 Description: Plugin to generate a unique code each selected item and send it to both, customer and external retailer.
 Author: Roc Toll
 Version: 1.1
@@ -52,7 +52,8 @@ class WooCommerce_Store_Pickup {
 		register_activation_hook( __FILE__, array( $this, 'activation' ) );
 		register_deactivation_hook( __FILE__, array( $this, 'deactivation' ) );
 
-		include( 'includes/admin/class-wc-store-pickup-admin.php' );
+		include( 'includes/admin/class-wc-store-pickup-settings.php' );
+		include( 'includes/admin/class-wc-store-pickup-admin.php' );		
 
 		$this->run_plugin();
 	}
@@ -123,23 +124,23 @@ class WooCommerce_Store_Pickup {
     private function run_plugin() {
 
 		//Generate the code
-		add_filter('woocommerce_get_cart_item_from_session', 'cart_item_from_session', 99, 3);
+		add_filter('woocommerce_get_cart_item_from_session', array( $this,'cart_item_from_session'), 99, 3);
 	 	// this one does the same as woocommerce_update_cart_action() in plugins\woocommerce\woocommerce-functions.php
 		// but with your "code" variable
 		add_action( 'init', array( $this, 'update_cart_action' ), 9);
 		
 		// this is in Order summary. It show Code variable under product name. Same place where Variations are shown.
-		add_filter( 'woocommerce_get_item_data', 'item_data', 10, 2 );
+		add_filter( 'woocommerce_get_item_data', array( $this, 'item_data'), 10, 2 );
 		// this adds Code as meta in Order for item
-		add_action ('woocommerce_add_order_item_meta', 'add_item_meta', 10, 2);
+		add_action ('woocommerce_add_order_item_meta', array( $this, 'add_item_meta'), 10, 2);
 		// this send emails both to user and retailer with the order code. One code for each product
-		add_action ('woocommerce_order_status_completed', 'send_mail', 10, 2);
+		add_action ('woocommerce_order_status_completed', array( $this, 'send_mail'), 10, 2);
    
 	}
 
 	public function cart_item_from_session( $data, $values, $key ) {
 		//set id length 
-		$random_id_length = 4; 
+		$random_id_length = 6; 
 		//generate a random id encrypt it and store it in $rnd_id 
 		$rnd_id = crypt(uniqid(rand(),1)); 
 		//to remove any slashes that might have come 
@@ -151,9 +152,9 @@ class WooCommerce_Store_Pickup {
 		$rnd_id = substr($rnd_id,0,$random_id_length); 
 		//Add user+product info
 		$current_usr = get_current_user_id(); 
-		$ids = $data['data']->post->ID.'u'.$current_usr;
+// 		$ids = $data['data']->post->ID.'u'.$current_usr;
 		
-	    $data['code'] = $ids.'-'.$rnd_id;
+	    $data['code'] = $rnd_id;
 	    return $data;
 	}
 
@@ -192,51 +193,91 @@ class WooCommerce_Store_Pickup {
 	   
 		foreach ( $items as $item ) { 
 		
-			$is_retailer = get_post_meta($item['product_id'],'is_retailer',true);
+			$is_pickup = get_post_meta($item['product_id'],'is_pickup',true); 
 			
-			if ( $is_retailer ) {
+			if ( $is_pickup ) {
 			
-				$code			= $item['item_meta']['Code'][0];
-				$book_date		= $item['item_meta']['Booking Date'][0];
-				$book_time		= $item['item_meta']['Booking Time'][0];
 			    $product_name	= $item['name'];
 			    $product_id		= $item['product_id'];
-	/* 		    $product_variation_id	= $item['variation_id']; */
-	
-			    $headers	= 'From: Escuelaskibaqueira<ventas@escuelaskibaqueira.com>' . "\r\n";
-			    $headers	.= "Content-type: text/html; charset=\"UTF-8\"; format=flowed \r\n";
+				$code			= $item['Code'];
+
+				$book_info		= '';
+				if (isset($item['item_meta']['Booking Date'][0])) $book_info = $item['item_meta']['Booking Date'][0];
+				if (isset($item['item_meta']['Booking Time'][0])) $book_info .= ' - '.$item['item_meta']['Booking Time'][0];
+			    
+			    // Initiate the settings class
+				$settings = new WC_Store_pickup_Settings();
+
+			    $re_mail_subject = $settings->get_option( 're_subject_input' );
+			    $cu_mail_subject = $settings->get_option( 'cu_subject_input' );
+
+			    $re_mail_content = $settings->get_option( 're_mail_layout' );
+			    $cu_mail_content = $settings->get_option( 'cu_mail_layout' );
 		
 			    $store_id	= get_post_meta($item['product_id'],'store_id',true);
 			    $store_name = get_the_title($store_id); 
-			    //$store_email = get_post_meta($store_id, 'email', true);
-		
+			    $store_address = get_post_meta($store_id,'store_address',true); 
+			    $store_phone = get_post_meta($store_id,'store_phone',true); 
+			    
+			    $all_info = 
+			    "<table style='text-align: left; border-collapse: collapse; width: 100%; margin: 0 auto;'>
+				    <tbody>
+					    <tr>
+						    <th style='border: 1px solid silver;'>Code</th>
+							<td style='border: 1px solid silver;'>$code</td>
+						</tr>
+					    <tr>
+						    <th style='border: 1px solid silver;'>Product</th>
+						    <td style='border: 1px solid silver;'>$product_name</td>
+					    </tr>
+					    <tr>
+						    <th style='border: 1px solid silver;'>Store</th>
+							<td style='border: 1px solid silver;'>$store_name</td>
+						</tr>
+					    <tr>
+						    <th style='border: 1px solid silver;'>Store adress</th>
+							<td style='border: 1px solid silver;'>$store_address</td>
+						</tr>
+					    <tr>
+						    <th style='border: 1px solid silver;'>Store phone</th>
+							<td style='border: 1px solid silver;'>$store_phone</td>
+						</tr>
+					    <tr>
+						    <th style='border: 1px solid silver;'>Customer</th>
+							<td style='border: 1px solid silver;'>$user->user_lastname, $user->user_firstname</td>
+						</tr>
+					    <tr>
+						    <th style='border: 1px solid silver;'>Booking dates</th>
+							<td style='border: 1px solid silver;'>$book_info</td>
+						</tr>
+				    </tbody>
+			    </table>";
+			    
 			    //Retailer email template
 				$re_email	= get_post_meta($item['product_id'],'retailer_email',true);
-				$re_subject	= 'Notificación compra en escuelaskibaqueira.com';
-		
-			    $re_content	= '<p>Se ha realizado una nueva compra de sus servicios:</p>';
-			    $re_content	.= '<h3>Producto: '.$product_name.'</br>Cliente: '.$user->user_lastname.', '.$user->user_firstname.'</h3>';
-			    if($book_date){
-			    	$re_content	.= '<h2>Fecha: '.$book_date.' - '.$book_time.'</h2>';
-			    }
-			    $re_content	.= '<h2>Código: '.$code.'</h2>';
-			    $re_content	.= '<p>Gracias por utilizar nuestros servicios<br><br>Equipo escuelaskibaqueira.com</p>';
-			    
+				$re_subject	= $re_mail_subject;
+
+				$re_content = $re_mail_content;
+				$re_content = str_replace("[user]", $user->user_firstname, $re_content);
+				$re_content = str_replace("[code]", $code, $re_content);
+				$re_content = str_replace("[product]", $product_name, $re_content);
+				$re_content = str_replace("[all]", $all_info, $re_content);
+
+				    
 			    //Customer email template
 				$cu_email	= $user->user_email;
-				$cu_subject	= 'Código de compra escuelaskibaqueira.com';
-		
-				$cu_content	= '<p>Hola '.$user->user_firstname.',</p>';
-				$cu_content	.= '<p>Aquí tiene el código de compra que debe entregar en el establecimiento.</p>';
-			    $cu_content	.= '<h2>Código: '.$code.'</h2><br>';
-			    $cu_content	.= '<h3>Producto: '.$product_name.'</h3>';
-			    $cu_content	.= '<p>Gracias por utilizar nuestros servicios<br><br>Equipo escuelaskibaqueira.com</p>';
-			    
-			    wp_mail( $re_email, $re_subject, $re_content, $headers ); 
-			    wp_mail( $cu_email, $cu_subject, $cu_content, $headers ); 
-			    echo $re_content.'<br><hr><br>'; 
-			    echo $cu_content;
-			    die();
+				$cu_subject	= $cu_mail_subject;
+				
+				$cu_content = $cu_mail_content;
+				$cu_content = str_replace("[user]", $user->user_firstname, $cu_content);
+				$cu_content = str_replace("[code]", $code, $cu_content);
+				$cu_content = str_replace("[product]", $product_name, $cu_content);
+				$cu_content = str_replace("[all]", $all_info, $cu_content);
+
+			    $mailer = WC()->mailer();
+				$mailer->send( $re_email, $re_subject, $mailer->wrap_message( $re_subject, $re_content ), '', '' );
+				$mailer->send( $cu_email, $cu_subject, $mailer->wrap_message( $cu_subject, $cu_content ), '', '' );
+			    			    
 			}
 		}
 	
